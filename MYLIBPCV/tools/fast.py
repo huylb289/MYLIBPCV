@@ -1,78 +1,34 @@
-from PIL import Image as IM
 import numpy as np
+from PIL import Image as IM
 import matplotlib.pyplot as plt
-from scipy.ndimage import filters
+import os
+import numpy.linalg as LA
 
-def computeHarrisResponse(im, sigma=3):
-    """ Compute the Harris corner detector response function
-    for each pixel in a graylevel image"""
+fastPath = '~/fast/fast-Linux-x86_64'
 
-    # derivatives
-    imx = np.zeros(im.shape)
-    filters.gaussian_filter(im, (sigma, sigma), (0,1), imx)
+""" Ouput file
+48 3
+51 3
+58 3
 
-    imy = np.zeros(im.shape)
-    filters.gaussian_filter(im, (sigma, sigma), (1,0), imy)
+Each row contains the x-coordinate, y-coordinate.
+"""
 
-    # compute components of the Harris matrix
-    # from fomular (2.1) page 29 in the book
-    # "Programming Computer Vision with Python - Jan Erik Solem"
-    Wxx = filters.gaussian_filter(imx*imx, sigma)
-    Wxy = filters.gaussian_filter(imx*imy, sigma)
-    Wyy = filters.gaussian_filter(imy*imy, sigma)
+def processImage(imagename, resultname, \
+                 params='-l -t 20 -n 9'):
 
-    # determinant and trace
-    Wdeterminant = Wxx*Wyy - (Wxy**2)
-    Wtrace = Wxx + Wyy
+    cmmd = str(fastPath + ' ' + params + ' ' + imagename\
+               + ' ' + resultname)
 
-    return Wdeterminant / Wtrace
+    os.system(cmmd)
+    print ('processed {} to {}'.format(imagename, resultname))
 
-def getHarrisPoints(harrisim, minDist=10, threshold=0.1):
-    """ Return corners from a Harris response image
-    min_dist is the minimum number of pixels separating
-    corners and image boundary. """
+def readFastPointsFromFile(filename):
+    """ Rad features properties and return in matrix form"""
+    f = np.loadtxt(filename)
+    return np.vstack((f[:,1],f[:,0])).T # reverse coordinate x,y coordinates
 
-    # find top corner candidates above a threshold
-    cornerThreshold = harrisim.max() * threshold
-    harrisim_t = (harrisim > cornerThreshold) * 1
-
-    # get coordinates of candidates
-    coords = np.array(harrisim_t.nonzero()).T
-    # their values
-    candidateValues = [harrisim[c[0],c[1]] for c in coords]
-
-    # sort candidates
-##    >>> x = np.array([3, 1, 2])
-##    >>> np.argsort(x)
-##    array([1, 2, 0])
-    index = np.argsort(candidateValues)
-
-    # store allowed point locations in array
-##>>> A = np.random.rand(5,5)
-##>>> A
-##array([[ 0.92051466,  0.5810133 ,  0.29408974,  0.87221451,  0.81752013],
-##       [ 0.12215516,  0.48137907,  0.33152909,  0.51876608,  0.37834504],
-##       [ 0.71962784,  0.17070431,  0.23710843,  0.27570105,  0.71211124],
-##       [ 0.15123192,  0.63528979,  0.03601388,  0.25650442,  0.01220797],
-##       [ 0.05309662,  0.59374243,  0.03383327,  0.18068062,  0.24960569]])
-##>>> A[1:-1,1:-1]
-##array([[ 0.48137907,  0.33152909,  0.51876608],
-##       [ 0.17070431,  0.23710843,  0.27570105],
-##       [ 0.63528979,  0.03601388,  0.25650442]])
-    allowedLocations = np.zeros(harrisim.shape)
-    allowedLocations[minDist:-minDist, minDist:-minDist] = 1
-
-    # select the best points taking min distance into account
-    filteredCoords = []
-    for i in index:
-        if allowedLocations[coords[i,0],coords[i,1]] == 1:
-            filteredCoords.append(coords[i])
-            allowedLocations[(coords[i,0]-minDist):(coords[i,0]+minDist),
-                              (coords[i,1]-minDist):(coords[i,1]+minDist)] = 0
-
-    return filteredCoords
-
-def plotHarrisPoints(image, filteredCoords):
+def plotFastPoints(image, filteredCoords):
     """ Plot corner found in image"""
     plt.figure()
     plt.gray()
@@ -86,39 +42,13 @@ def getDescriptors(image, filteredCoords, width=5):
     of width 2*width+1. (Assume points are extracted with minDistance > width)"""
 
     desc = []
-    for coords in filteredCoords:
-        patch = image[coords[0]-width:coords[0]+width,\
-                      coords[1]-width:coords[1]+width]
+    for i in range(0,len(filteredCoords)):
+        patch = image[int(filteredCoords[i][0])-width:int(filteredCoords[i][0])+width,\
+                      int(filteredCoords[i][1])-width:int(filteredCoords[i][1])+width]
 
         desc.append(patch)
 
     return desc
-
-def match(desc1, desc2, threshold=0.5):
-    """ For each corner point descriptor in the first image,
-    select its match to second image using normalized cross-correlation."""
-
-    n = len(desc1[0])
-
-    print("n: {}\n".format(n))
-    print("desc1: {}\n".format(len(desc1)))
-    print("desc2: {}\n".format(len(desc2)))
-    
-    # pair-wise distances
-    d = -np.ones((len(desc1),len(desc2)))
-    for i in range(len(desc1)):
-        for j in range(len(desc2)):
-            d1 = (desc1[i] - np.mean(desc1[i])) / np.std(desc1[i])
-            d2 = (desc2[j] - np.mean(desc2[j])) / np.std(desc2[j])
-            nccValue = np.sum(d1 * d2) / (n - 1)
-            if nccValue > threshold:
-                d[i,j] = nccValue
-
-    # sort desc 
-    ndx = np.argsort(-d)
-    matchscores = ndx[:,0] # get the first column
-
-    return matchscores
 
 def matchMaximumDistance(desc1, desc2, threshold=0.5):
     """ For each corner point descriptor in the first image,
@@ -165,6 +95,35 @@ def matchTwoSidedMaximumDistance(desc1, desc2, threshold=0.5):
             matches12[n] = -1
 
     return matches12
+
+def match(desc1, desc2, threshold=0.5):
+    """ For each corner point descriptor in the first image,
+    select its match to second image using normalized cross-correlation."""
+
+    n = len(desc1[0])
+
+    print("n: {}\n".format(n))
+    print("desc1: {}\n".format(len(desc1)))
+    print("desc2: {}\n".format(len(desc2)))
+    
+    # pair-wise distances
+    d = -np.ones((len(desc1),len(desc2)))
+    for i in range(len(desc1)):
+        for j in range(len(desc2)):
+            try:
+                d1 = (desc1[i] - np.mean(desc1[i])) / np.std(desc1[i])
+                d2 = (desc2[j] - np.mean(desc2[j])) / np.std(desc2[j])
+                nccValue = np.sum(d1 * d2) / (n - 1)
+                if nccValue > threshold:
+                    d[i,j] = nccValue
+            except:
+                continue
+
+    # sort desc 
+    ndx = np.argsort(-d)
+    matchscores = ndx[:,0] # get the first column
+
+    return matchscores
 
 def matchTwoSided(desc1, desc2, threshold=0.5):
     """ Two-sided symetric version of match()."""

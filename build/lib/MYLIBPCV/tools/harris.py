@@ -120,6 +120,52 @@ def match(desc1, desc2, threshold=0.5):
 
     return matchscores
 
+def matchMaximumDistance(desc1, desc2, threshold=0.5):
+    """ For each corner point descriptor in the first image,
+    select its match to second image using normalized cross-correlation."""
+
+    n = len(desc1[0])
+
+    print("n: {}\n".format(n))
+    print("desc1: {}\n".format(len(desc1)))
+    print("desc2: {}\n".format(len(desc2)))
+    
+    # pair-wise distances
+    d = -np.ones((len(desc1),len(desc2)))
+    for i in range(len(desc1)):
+        for j in range(len(desc2)):
+            d1 = desc1[i]**2
+            d2 = desc2[j]**2
+            compareValue = np.sum(np.sqrt(d1 + d2))
+            if compareValue > threshold:
+                d[i,j] = compareValue
+
+    # sort desc 
+    ndx = np.argsort(-d)
+    matchscores = ndx[:,0] # get the first column
+
+    return matchscores
+
+def matchTwoSidedMaximumDistance(desc1, desc2, threshold=0.5):
+    """ Two-sided symetric version of match()."""
+    matches12 = matchMaximumDistance(desc1, desc2, threshold)
+    matches21 = matchMaximumDistance(desc2, desc1, threshold)
+
+##>>> np.where(A > 0.15)
+##(array([0, 0, 0, 1, 2, 2, 2]), array([0, 1, 2, 2, 0, 1, 2]))
+##>>> np.where(A > 0.15)[0]
+##array([0, 0, 0, 1, 2, 2, 2])
+    ndx12 = np.where(matches12 > 0) [0]
+
+    print("ndx: {}\n".format(len(ndx12)))
+
+    # remove matches that are not symmetric
+    for n in ndx12:
+        if matches21[matches12[n]] != n:
+            matches12[n] = -1
+
+    return matches12
+
 def matchTwoSided(desc1, desc2, threshold=0.5):
     """ Two-sided symetric version of match()."""
     matches12 = match(desc1, desc2, threshold)
@@ -164,13 +210,10 @@ def plotMatches(im1,im2,locs1,locs2,matchscores,show_below=True):
     if show_below:
         im3 = np.vstack((im3,im3))
 
-    plt.figure()
-    plt.gray()
     plt.imshow(im3)
     cols1 = im1.shape[1]
     for i,m in enumerate(matchscores):
         if m>0:
             plt.plot([locs1[i][1],locs2[m][1]+cols1],[locs1[i][0],locs2[m][0]],'c')
     plt.axis('off')
-    plt.show()
         
