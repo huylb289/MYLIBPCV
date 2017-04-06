@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image as IM
+from numpy import *
 
 def normalize(points):
     """ Normalize a collection of points in homogeneous
@@ -45,7 +46,7 @@ def HFromPoints(fp, tp):
     # create matrix for linear method, 2 rows for each correspondence pair
     nbrCorrespondences = fp.shape[1]
     A = np.zeros((2*nbrCorrespondences,9))
-    for i in np.range(nbrCorrespondences):
+    for i in range(nbrCorrespondences):
         A[2*i] = [-fp[0][i],-fp[1][i],-1,0,0,0,\
                   tp[0][i]*fp[0][i],tp[0][i]*fp[1][i],tp[0][i]]
         A[2*i+1] = [0,0,0,-fp[0][i],-fp[1][i],-1,\
@@ -100,4 +101,64 @@ def HaffineFromPoints(fp, tp):
     H = np.dot(np.linalg.inv(C2), np.dot(H, C1))
 
     return H / H[2,2]
+
+class RansacModel(object):
+    """ Class for testing homography fit with ransac.py from
+    http://www.scipy.org/Cookbook/RANSAC"""
     
+    def __init__(self,debug=False):
+        self.debug = debug
+        
+    def fit(self, data):
+        """ Fit homography to four selected correspondences. """
+        
+        # transpose to fit H_from_points()
+        data = data.T
+        
+        # from points
+        fp = data[:3,:4]
+        
+        # target points
+        tp = data[3:,:4]
+        
+        # fit homography and return
+        return HFromPoints(fp,tp)
+
+    def get_error(self, data, H):
+        """ Apply homography to all correspondences,
+        return error for each transformed point. """
+        
+        data = data.T
+        
+        # from points
+        fp = data[:3]
+        
+        # target points
+        tp = data[3:]
+        
+        # transform fp
+        fpTransformed = np.dot(H,fp)
+        
+        # normalize hom. coordinates
+        for i in range(3):
+            fpTransformed[i] /= fpTransformed[2]
+            
+        # return error per point
+        return np.sqrt( np.sum((tp-fpTransformed)**2,axis=0) )
+
+def H_from_ransac(fp,tp,model,maxiter=1000,match_theshold=10):
+    """ Robust estimation of homography H from point
+    correspondences using RANSAC (ransac.py from
+    http://www.scipy.org/Cookbook/RANSAC).
+    input: fp,tp (3*n arrays) points in hom. coordinates. """
+    
+    from MYLIBPCV.tools import ransac
+    
+    # group corresponding points
+    data = vstack((fp,tp))
+    
+    # compute H and return
+    H,ransacData = ransac.ransac(data.T,model,4,maxiter,match_theshold,10,\
+                                  return_all=True)
+    
+    return H,ransacData['inliers']

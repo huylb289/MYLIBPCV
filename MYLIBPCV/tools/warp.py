@@ -4,6 +4,8 @@ from PIL import Image as IM
 from MYLIBPCV.tools import homography
 from scipy.ndimage import affine_transform
 import matplotlib.delaunay as md
+from scipy import ndimage
+from numpy import *
 
 def alphaForTriangle(points,m,n):
     """ Creates alpha map of size (m,n)
@@ -115,3 +117,74 @@ def plotMesh(x,y,tri):
     for t in tri:
         tExt = [t[0], t[1], t[2], t[0]] # add first point to end
         plt.plot(x[tExt],y[tExt],'r')
+
+def panorama(H,fromim,toim,padding=2400,delta=2400):
+    """ Create horizontal panorama by blending two images
+    using a homography H (preferably estimated using RANSAC).
+    The result is an image with the same height as toim. 'padding'
+    specifies number of fill pixels and 'delta' additional translation.
+
+    For a general geometric_transform() , a function describing the pixel to pixel map needs
+    to be specified.
+
+    """
+    
+    # check if images are grayscale or color
+    is_color = len(fromim.shape) == 3
+    # homography transformation for geometric_transform()
+##    In this case, transf() does this by multiplying with H and normalizing
+##    the homogeneous coordinates.
+    def transf(p):
+        p2 = dot(H,[p[0],p[1],1])
+        return (p2[0]/p2[2],p2[1]/p2[2])
+    
+    if H[1,2]<0: # fromim is to the right
+        print ('warp - right')
+        
+        # transform fromim
+        if is_color:
+            # pad the destination image with zeros to the right
+            toim_t = hstack((toim,zeros((toim.shape[0],padding,3))))
+            fromim_t = zeros((toim.shape[0],toim.shape[1]+padding,toim.shape[2]))
+            
+            for col in range(3):
+                fromim_t[:,:,col] = ndimage.geometric_transform(fromim[:,:,col],\
+                                                                transf,(toim.shape[0],toim.shape[1]+padding))
+        else:
+            # pad the destination image with zeros to the right
+            toim_t = hstack((toim,zeros((toim.shape[0],padding))))
+            fromim_t = ndimage.geometric_transform(fromim,transf,\
+                                                   (toim.shape[0],toim.shape[1]+padding))
+    else:
+        print ('warp - left')
+        
+        # add translation to compensate for padding to the left
+        H_delta = array([[1,0,0],[0,1,-delta],[0,0,1]])
+        H = dot(H,H_delta)
+
+        # transform fromim
+        if is_color:
+            # pad the destination image with zeros to the left
+            toim_t = hstack((zeros((toim.shape[0],padding,3)),toim))
+            fromim_t = zeros((toim.shape[0],toim.shape[1]+padding,toim.shape[2]))
+            for col in range(3):
+                fromim_t[:,:,col] = ndimage.geometric_transform(fromim[:,:,col],\
+                                                                transf,(toim.shape[0],toim.shape[1]+padding))
+        else:
+            # pad the destination image with zeros to the left
+            toim_t = hstack((zeros((toim.shape[0],padding)),toim))
+            fromim_t = ndimage.geometric_transform(fromim,\
+                                                   transf,(toim.shape[0],toim.shape[1]+padding))
+
+    # blend and return (put fromim above toim)
+    if is_color:
+        # all non black pixels
+        alpha = ((fromim_t[:,:,0] * fromim_t[:,:,1] * fromim_t[:,:,2] ) > 0)
+        for col in range(3):
+            toim_t[:,:,col] = fromim_t[:,:,col]*alpha + toim_t[:,:,col]*(1-alpha)
+    else:
+        alpha = (fromim_t > 0)
+        toim_t = fromim_t*alpha + toim_t*(1-alpha)
+        
+    return toim_t
+
